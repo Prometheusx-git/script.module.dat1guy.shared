@@ -66,14 +66,21 @@ class Helper(Addon):
         from datetime import datetime
         try:
             return datetime.strptime(date_str, format)
-        except TypeError:
-            return datetime(*(time.strptime(date_str, format)[0:6]))
+        except :                      
+            try:
+			return datetime(*(time.strptime(date_str, format)[0:6]))
+            except:
+                date_str = ('Jan 1, 1901') 
+                return datetime(*(time.strptime(date_str, format)[0:6]))
 
     def log(self, msg, level=xbmc.LOGNOTICE):
         # Some strings will be unicode, and some of those will already be 
         # encoded.  This try/except tries to account for that.
         if isinstance(msg, str):
-            unicode_msg = unicode(msg)
+            try:
+			    unicode_msg = unicode(msg)
+            except:
+                unicode_msg = msg
         elif isinstance(msg, unicode):
             try:
                 unicode_msg = msg.decode('utf8')
@@ -81,7 +88,10 @@ class Helper(Addon):
                 unicode_msg = msg.encode('utf8').decode('utf8')
         else:
             unicode_msg = msg
-        msg = unicodedata.normalize('NFKD', unicode_msg).encode('ascii', 'ignore')
+        try:
+            msg = unicodedata.normalize('NFKD', unicode_msg).encode('ascii', 'ignore')
+        except: 
+            msg = ''		
         Addon.log(self, msg, level)
 
     def set_content(self, content_type):
