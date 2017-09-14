@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8" standalone="yes"?>
-<addon id="script.module.dat1guy.shared" version="1.0.1" name="dat1guy's Shared Methods" provider-name="dat1guy">
+<addon id="script.module.dat1guy.shared" version="1.0.5" name="dat1guy's Shared Methods" provider-name="dat1guy">
   <requires>
     <import addon="xbmc.python" version="2.24.0" />
     <import addon="script.module.addon.common" />
