@@ -52,6 +52,9 @@ class Helper(Addon):
                  playlist=False, item_type='video', is_folder=False):
         if fanart == '':
             fanart = self.addon.getAddonInfo('fanart')
+        if (infolabels == {} ):
+            infolabels['title'] = queries['base_title']		
+        #self.show_error_dialog(['',str(queries)])        			
         return Addon.add_item(self, queries, infolabels, properties, contextmenu_items, context_replace, img, fanart, resolved, total_items, playlist, item_type, is_folder)
 
     # AKA youve_got_to_be_kidding_me
