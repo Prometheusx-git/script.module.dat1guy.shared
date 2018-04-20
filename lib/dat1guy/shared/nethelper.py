@@ -21,10 +21,12 @@
 '''
 
 
-import urllib2, cookielib
+import urllib2, cookielib 
 from addon.common.net import Net
 from dat1guy.shared.shared_helper import shared_helper as helper
-
+from time import sleep
+import re
+from decimal import Decimal, ROUND_UP
 
 class NetHelper(Net):
     '''
@@ -38,7 +40,8 @@ class NetHelper(Net):
     Net._cj = cookielib.MozillaCookieJar()
     
     def __init__(self, cookie_file, cloudflare=False):
-        Net.__init__(self, cookie_file=cookie_file)
+        user_agent = 'Mozilla/5.0 (Linux; Android 4.0.4; Galaxy Nexus Build/IMM76B) AppleWebKit/535.19 (KHTML, like Gecko) Chrome/18.0.1025.133 Mobile Safari/535.19'	
+        Net.__init__(self, cookie_file=cookie_file, user_agent=user_agent)
         self._cloudflare_jar = cookielib.MozillaCookieJar() # ISSUE #5537
         self._cloudflare = cloudflare
 
@@ -58,16 +61,20 @@ class NetHelper(Net):
                 if e.code == 503:
                     helper.log_debug('Encountered a cloudflare challenge')
                     challenge = e.read()
+                
                     if challenge == 'The service is unavailable.':
                         helper.log_debug('Challenge says the service is unavailable')
                         raise
                     try:
                         helper.log_debug("Received a challenge, so we'll need to get around cloudflare")
+                        #helper.show_error_dialog(['',str(challenge)])						
                         self._resolve_cloudflare(url, challenge, form_data, headers, compression)
                         helper.log_debug("Successfully resolved cloudflare challenge, fetching real response")
+                        #helper.show_error_dialog(['',str(url)])  
                         return Net._fetch(self, url, form_data, headers, compression)
                     except urllib2.HTTPError as e:
                         helper.log_debug("Failed to set up cloudflare with exception %s" % str(e))
+  
                         raise
                 else:
                     helper.log_debug('Initial attempt failed with code %d' % e.code)
@@ -87,89 +94,108 @@ class NetHelper(Net):
         # Use the cloudflare jar instead for this attempt; revert back to 
         # main jar after attempt with call to update_opener()
         self._update_opener_with_cloudflare()
-
-        try:
-            helper.log_debug("Attempting to resolve the challenge")
-            response = Net._fetch(self, query, form_data, headers, compression)
-            helper.log_debug("Resolved the challenge, updating cookies")
-            for c in self._cloudflare_jar:
-                self._cj.set_cookie(c)
-            self._update_opener()
-        except urllib2.HTTPError as e:
-            helper.log_debug("Failed to resolve the cloudflare challenge with exception %s" % str(e))
-            self._update_opener()
-            pass
+		
+        #helper.show_error_dialog(['',str(self._cloudflare_jar)])		
+        response,error = self.get_html(query, self._cloudflare_jar,headers, form_data)#Net._fetch(self, query, form_data, headers, compression)
+        		
+        helper.log_debug("Resolved the challenge, updating cookies")
+        for c in self._cloudflare_jar:
+            self._cj.set_cookie(c)
+        self._update_opener()
         helper.end('_resolve_cloudflare')
     
     def _get_cloudflare_answer(self, url, challenge, form_data={}, headers={}, compression=True):
-        '''
-            Use the cloudflare cookie jar to overcome the cloudflare challenge.
-            Returns an URL with the answer to try.
-
-            Credit to lambda - https://offshoregit.com/lambda81/
-            plugin.video.genesis\resources\lib\libraries\cloudflare.py        
+        '''     
         '''
         helper.start("_get_cloudflare_answer")
+        self.js_data = {}	
+        #self.header_data = {}
+		
         if not challenge:
             helper.log_debug('Challenge is empty, re')
             raise ValueError('Challenge is empty')
-
-        import re
+		
+        if not "var s,t,o,p,b,r,e,a,k,i,n,g,f" in challenge:
+            return		
+			
         try:
-            jschl = re.compile('name="jschl_vc" value="(.+?)"/>').findall(challenge)[0]
-            init_str = re.compile('setTimeout\(function\(\){\s*.*?.*:(.*?)};').findall(challenge)[0]
-            builder = re.compile(r"challenge-form\'\);\s*(.*)a.v").findall(challenge)[0]
-            decrypt_val = self._parseJSString(init_str)
-            lines = builder.split(';')
+            self.js_data["auth_url"] = \
+                re.compile('<form id="challenge-form" action="([^"]+)" method="get">').findall(challenge)[0]
+            self.js_data["params"] = {}
+            self.js_data["params"]["jschl_vc"] = \
+                re.compile('<input type="hidden" name="jschl_vc" value="([^"]+)"/>').findall(challenge)[0]
+            self.js_data["params"]["pass"] = \
+                re.compile('<input type="hidden" name="pass" value="([^"]+)"/>').findall(challenge)[0]
+            var, self.js_data["value"] = \
+                re.compile('var s,t,o,p,b,r,e,a,k,i,n,g,f[^:]+"([^"]+)":([^\n]+)};', re.DOTALL).findall(challenge)[0]
+            self.js_data["op"] = re.compile(var + "([\+|\-|\*|\/])=([^;]+)", re.MULTILINE).findall(challenge)
+            self.js_data["wait"] = int(re.compile("\}, ([\d]+)\);", re.MULTILINE).findall(challenge)[0]) / 1000
+			
         except Exception as e:
-            helper.log_debug('Failed to parse the challenge %s' % str(challenge))
-            lines = []
-            raise
+            helper.log_debug("Error executing Cloudflare IUAM Javascript. %s" % str(challenge))
+            self.js_data = {}			
+            #raise
+			
+        if "refresh" in (headers):			
+            helper.show_error_dialog(['',str(headers)])
+			
+        if self.js_data.get("wait", 0):		
+            jschl_answer = self.decode2(self.js_data["value"])
 
-        try:
-            for line in lines:
-                if len(line) > 0 and '=' in line:
-                    sections = line.split('=')
-                    line_val = self._parseJSString(sections[1])
-                    decrypt_val = int(eval(str(decrypt_val) + sections[0][-1] + str(line_val)))
-        except Exception as e:
-            helper.log_debug('Failed to find the decrypt_val from the lines')
-            raise
+            for op, v in self.js_data["op"]:
+                # jschl_answer = eval(str(jschl_answer) + op + str(self.decode2(v)))
+                if op == '+':
+                    jschl_answer = jschl_answer + self.decode2(v)
+                elif op == '-':
+                    jschl_answer = jschl_answer - self.decode2(v)
+                elif op == '*':
+                    jschl_answer = jschl_answer * self.decode2(v)
+                elif op == '/':
+                    jschl_answer = jschl_answer / self.decode2(v)
 
-        from urlparse import urlparse
-        path = urlparse(url).path
-        netloc = urlparse(url).netloc
-        if not netloc:
-            netloc = path
+            from urlparse import urlparse
+            path = urlparse(url).path
+            netloc = urlparse(url).netloc
+            if not netloc:
+                netloc = path													
+				
+            self.js_data["params"]["jschl_answer"] = round(jschl_answer, 10) + len(netloc)		
 
-        answer = decrypt_val + len(netloc)
+            url = url.rstrip('/')
+            import urllib        
+            query = '%s%s?%s' % (
+                url, self.js_data["auth_url"], urllib.urlencode(self.js_data["params"]))
+            #helper.show_error_dialog(['',str(query)]) 		
+				
+            sleep(self.js_data["wait"])
+            #sleep(5)	
+            helper.end("_get_cloudflare_answer")
+            return query
+        #helper.show_error_dialog(['',str(answer)]) 
+			
+    def decode2(self, data):
+        data = re.sub("\!\+\[\]", "1", data)
+        data = re.sub("\!\!\[\]", "1", data)
+        data = re.sub("\[\]", "0", data)
 
-        url = url.rstrip('/')
-        query = '%s/cdn-cgi/l/chk_jschl?jschl_vc=%s&jschl_answer=%s' % (url, jschl, answer)
+        pos = data.find("/")
+        numerador = data[:pos]
+        denominador = data[pos + 1:]
 
-        import urllib
-        if 'type="hidden" name="pass"' in challenge:
-            passval = re.compile('name="pass" value="(.*?)"').findall(challenge)[0]
-            query = '%s/cdn-cgi/l/chk_jschl?pass=%s&jschl_vc=%s&jschl_answer=%s' % \
-                    (url, urllib.quote_plus(passval), jschl, answer)
-            import time
-            time.sleep(9)
+        aux = re.compile('\(([0-9\+]+)\)').findall(numerador)
+        num1 = ""
+        for n in aux:
+            num1 += str(eval(n))
 
-        helper.end("_get_cloudflare_answer")
-        return query
+        aux = re.compile('\(([0-9\+]+)\)').findall(denominador)
+        num2 = ""
+        for n in aux:
+            num2 += str(eval(n))
 
-    def _parseJSString(self, s):
-        '''
-            Credit to lambda - https://offshoregit.com/lambda81/
-            plugin.video.genesis\resources\lib\libraries\cloudflare.py        
-        '''
-        try:
-            offset=1 if s[0] == '+' else 0
-            val = int(eval(s.replace('!+[]','1').replace('!![]','1').replace('[]','0').replace('(','str(')[offset:]))
-            return val
-        except Exception as e:
-            helper.log_debug('_parseJSString failed with exception %s' % str(e))
-            pass
+        # return float(num1) / float(num2)
+        # return Decimal(Decimal(num1) / Decimal(num2)).quantize(Decimal('.0000000000000001'), rounding=ROUND_UP)
+        return Decimal(Decimal(num1) / Decimal(num2)).quantize(Decimal('.0000000000000001'))
+				
 
     def _update_opener_with_cloudflare(self):
         '''
