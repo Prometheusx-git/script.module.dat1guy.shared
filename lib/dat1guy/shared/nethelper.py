@@ -65,7 +65,8 @@ class NetHelper(Net):
                     if challenge == 'The service is unavailable.':
                         helper.log_debug('Challenge says the service is unavailable')
                         raise
-                    try:
+                    try:                        
+					
                         helper.log_debug("Received a challenge, so we'll need to get around cloudflare")
                         #helper.show_error_dialog(['',str(challenge)])						
                         self._resolve_cloudflare(url, challenge, form_data, headers, compression)
@@ -89,15 +90,16 @@ class NetHelper(Net):
         from urlparse import urlparse, urlunparse
         parsed_url = urlparse(url)
         cloudflare_url = urlunparse((parsed_url.scheme, parsed_url.netloc, '', '', '', ''))
-        query = self._get_cloudflare_answer(cloudflare_url, challenge, form_data, headers, compression)
+        #query = self._get_cloudflare_answer(cloudflare_url, challenge, form_data, headers, compression)
 
         # Use the cloudflare jar instead for this attempt; revert back to 
         # main jar after attempt with call to update_opener()
         self._update_opener_with_cloudflare()
-		
-        #helper.show_error_dialog(['',str(self._cloudflare_jar)])		
-        response,error = self.get_html(query, self._cloudflare_jar,headers, form_data)#Net._fetch(self, query, form_data, headers, compression)
-        		
+        error = Exception	
+        while ( '404' not in str(error)):	
+            query = self._get_cloudflare_answer(cloudflare_url, challenge, form_data, headers, compression)
+            response,error = self.get_html(query, self._cloudflare_jar,headers, form_data)#Net._fetch(self, query, form_data, headers, compression)
+            #helper.show_error_dialog(['',str(error)])	        		
         helper.log_debug("Resolved the challenge, updating cookies")
         for c in self._cloudflare_jar:
             self._cj.set_cookie(c)
@@ -138,39 +140,38 @@ class NetHelper(Net):
 			
         if "refresh" in (headers):			
             helper.show_error_dialog(['',str(headers)])
-			
-        if self.js_data.get("wait", 0):		
-            jschl_answer = self.decode2(self.js_data["value"])
+		
+        #if self.js_data.get("wait", 0):		
+        jschl_answer = self.decode2(self.js_data["value"])
 
-            for op, v in self.js_data["op"]:
-                # jschl_answer = eval(str(jschl_answer) + op + str(self.decode2(v)))
-                if op == '+':
-                    jschl_answer = jschl_answer + self.decode2(v)
-                elif op == '-':
-                    jschl_answer = jschl_answer - self.decode2(v)
-                elif op == '*':
-                    jschl_answer = jschl_answer * self.decode2(v)
-                elif op == '/':
-                    jschl_answer = jschl_answer / self.decode2(v)
+        for op, v in self.js_data["op"]:
+            if op == '+':
+                jschl_answer = jschl_answer + self.decode2(v)
+            elif op == '-':
+                jschl_answer = jschl_answer - self.decode2(v)
+            elif op == '*':
+                jschl_answer = jschl_answer * self.decode2(v)
+            elif op == '/':
+                jschl_answer = jschl_answer / self.decode2(v)
 
-            from urlparse import urlparse
-            path = urlparse(url).path
-            netloc = urlparse(url).netloc
-            if not netloc:
-                netloc = path													
+        from urlparse import urlparse
+        path = urlparse(url).path
+        netloc = urlparse(url).netloc
+        if not netloc:
+            netloc = path													
 				
-            self.js_data["params"]["jschl_answer"] = round(jschl_answer, 10) + len(netloc)		
+        self.js_data["params"]["jschl_answer"] = round(jschl_answer, 10) + len(netloc)		
 
-            url = url.rstrip('/')
-            import urllib        
-            query = '%s%s?%s' % (
-                url, self.js_data["auth_url"], urllib.urlencode(self.js_data["params"]))
+        url = url.rstrip('/')
+        import urllib        
+        query = '%s%s?%s' % (
+            url, self.js_data["auth_url"], urllib.urlencode(self.js_data["params"]))
             #helper.show_error_dialog(['',str(query)]) 		
 				
-            sleep(self.js_data["wait"])
-            #sleep(5)	
-            helper.end("_get_cloudflare_answer")
-            return query
+        sleep(self.js_data["wait"])
+        #sleep(5)	
+        helper.end("_get_cloudflare_answer")
+        return query
         #helper.show_error_dialog(['',str(answer)]) 
 			
     def decode2(self, data):
@@ -192,8 +193,6 @@ class NetHelper(Net):
         for n in aux:
             num2 += str(eval(n))
 
-        # return float(num1) / float(num2)
-        # return Decimal(Decimal(num1) / Decimal(num2)).quantize(Decimal('.0000000000000001'), rounding=ROUND_UP)
         return Decimal(Decimal(num1) / Decimal(num2)).quantize(Decimal('.0000000000000001'))
 				
 
