@@ -95,11 +95,12 @@ class NetHelper(Net):
         # Use the cloudflare jar instead for this attempt; revert back to 
         # main jar after attempt with call to update_opener()
         self._update_opener_with_cloudflare()
-        error = Exception	
-        while ( '404' not in str(error)):	
+
+        for x in range(1,10):		
             query = self._get_cloudflare_answer(cloudflare_url, challenge, form_data, headers, compression)
             response,error = self.get_html(query, self._cloudflare_jar,headers, form_data)#Net._fetch(self, query, form_data, headers, compression)
             #helper.show_error_dialog(['',str(error)])	        		
+            if ('404' in str(error)): break		
         helper.log_debug("Resolved the challenge, updating cookies")
         for c in self._cloudflare_jar:
             self._cj.set_cookie(c)
